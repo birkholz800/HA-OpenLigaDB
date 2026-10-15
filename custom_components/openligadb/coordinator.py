@@ -6,13 +6,14 @@ from datetime import datetime, timedelta, timezone
 import logging
 from time import monotonic
 from typing import Any
+from urllib.parse import quote
 
 import aiohttp
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from .client import get_client
 from .const import (
     API_URL_AVAILABLE_LEAGUES,
     API_URL_AVAILABLE_TEAMS,
@@ -62,22 +63,18 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name=DOMAIN,
             update_interval=timedelta(minutes=DEFAULT_UPDATE_INTERVAL_MINUTES),
         )
-        self.session = async_get_clientsession(hass)
+        self.client = get_client(hass)
         self.league_shortcuts = league_shortcuts
         self.team_filters = team_filters
         self.team_ids = dict(team_ids or {})
-        self._request_semaphore = asyncio.Semaphore(5)
-        self._discovery_cache: dict[tuple[str, str, str], tuple[float, dict[str, Any], list[dict[str, Any]]]] = {}
+        self._discovery_cache = self.client.discovery_cache
         self._previous_goals: dict[int, int] = {}  # match_id -> count of goals
         self._previous_live_matches: set[int] = set()  # set of live match_ids
 
     async def _async_fetch_json(self, url: str) -> Any:
         """Fetch JSON data from URL safely."""
         try:
-            async with self._request_semaphore:
-                async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                    resp.raise_for_status()
-                    return await resp.json()
+            return await self.client.fetch(url)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
             raise UpdateFailed(f"Failed to fetch {url}: {err}") from err
 
@@ -91,7 +88,14 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_discover_team(
         self, key: tuple[str, str, str]
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        """Discover participation atomically; never cache partial discovery."""
+        """Serialize shared discovery progress, including across entry retries."""
+        async with self.client.discovery_lock:
+            return await self._async_discover_team_locked(key)
+
+    async def _async_discover_team_locked(
+        self, key: tuple[str, str, str]
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Probe at most three additional competitions; retain partial progress."""
         cached = self._discovery_cache.get(key)
         if cached and monotonic() - cached[0] < 24 * 60 * 60:
             return cached[1], cached[2]
@@ -101,7 +105,7 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if target_id is not None and (type(target_id) is not int or target_id <= 0):
             raise UpdateFailed(f"Invalid configured team ID for {name}")
         origin_teams = await self._async_fetch_list(
-            API_URL_AVAILABLE_TEAMS.format(league_shortcut=origin, season=season)
+            API_URL_AVAILABLE_TEAMS.format(league_shortcut=quote(origin, safe=""), season=quote(season, safe=""))
         )
         if any(type(team.get("teamId")) is not int for team in origin_teams):
             raise UpdateFailed(f"Invalid team IDs in {origin}/{season}")
@@ -117,53 +121,59 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise UpdateFailed(f"Cannot uniquely resolve team {name} in {origin}/{season}")
             target_id = candidates.pop()
 
-        leagues = await self._async_fetch_list(API_URL_AVAILABLE_LEAGUES)
-        competitions_by_key = {}
-        for league in leagues:
-            if str(league.get("leagueSeason")) != season:
-                continue
-            shortcut = league.get("leagueShortcut")
-            if not isinstance(shortcut, str) or not shortcut:
-                raise UpdateFailed("Invalid league shortcut in discovery response")
-            competitions_by_key[(shortcut, season)] = {
-                "league_shortcut": shortcut,
-                "league_name": league.get("leagueName") or shortcut,
-                "season": season,
-            }
-        competitions_by_key.setdefault((origin, season), {
-            "league_shortcut": origin, "league_name": origin, "season": season,
-        })
-        competitions = list(competitions_by_key.values())
-
-        async def fetch_teams(competition: dict[str, Any]) -> list[dict[str, Any]]:
-            if competition["league_shortcut"] == origin:
-                return origin_teams
-            return await self._async_fetch_list(API_URL_AVAILABLE_TEAMS.format(
-                league_shortcut=competition["league_shortcut"], season=season
-            ))
-
-        # Wait for all requests, including failures, before retrying on a later update.
-        results = await asyncio.gather(
-            *(fetch_teams(competition) for competition in competitions),
-            return_exceptions=True,
-        )
-        participating = []
-        target = None
-        for competition, teams in zip(competitions, results):
-            if isinstance(teams, BaseException):
-                raise UpdateFailed(f"Team discovery failed for {competition['league_shortcut']}: {teams}") from teams
-            for team in teams:
-                if type(team.get("teamId")) is not int:
-                    raise UpdateFailed("Invalid team ID in discovery response")
-            matches = [team for team in teams if team["teamId"] == target_id]
-            if matches:
-                participating.append(competition)
-                if target is None or competition["league_shortcut"] == origin:
-                    target = matches[0]
+        target = next((team for team in origin_teams if team["teamId"] == target_id), None)
         if target is None:
-            raise UpdateFailed(f"Team ID {target_id} not found in season {season}")
+            raise UpdateFailed(f"Team ID {target_id} not found in {origin}/{season}")
         self.team_ids[key] = target_id
-        self._discovery_cache[key] = (monotonic(), target, participating)
+        progress = self.client.discovery_progress.get(key)
+        if progress is None:
+            known = {c["league_shortcut"]: c for c in cached[2]} if cached else {}
+            known.setdefault(origin, {
+                "league_shortcut": origin, "league_name": origin, "season": season,
+            })
+            progress = {"known": known, "pending": None}
+            self.client.discovery_progress[key] = progress
+        try:
+            if progress["pending"] is None:
+                leagues = await self._async_fetch_list(API_URL_AVAILABLE_LEAGUES)
+                candidates = {}
+                for league in leagues:
+                    if str(league.get("leagueSeason")) != season:
+                        continue
+                    shortcut = league.get("leagueShortcut")
+                    if not isinstance(shortcut, str) or not shortcut:
+                        raise UpdateFailed("Invalid league shortcut in discovery response")
+                    candidates[shortcut] = {
+                        "league_shortcut": shortcut,
+                        "league_name": league.get("leagueName") or shortcut,
+                        "season": season,
+                    }
+                if origin in candidates:
+                    progress["known"][origin] = candidates.pop(origin)
+                progress["pending"] = list(candidates.values())
+            for _ in range(min(3, len(progress["pending"]))):
+                competition = progress["pending"][0]
+                shortcut = competition["league_shortcut"]
+                try:
+                    teams = await self._async_fetch_list(API_URL_AVAILABLE_TEAMS.format(
+                        league_shortcut=quote(shortcut, safe=""), season=quote(season, safe="")
+                    ))
+                    if any(type(team.get("teamId")) is not int for team in teams):
+                        raise UpdateFailed("Invalid team ID in discovery response")
+                except UpdateFailed:
+                    # A broken competition must not starve the rest of the queue.
+                    progress["pending"].append(progress["pending"].pop(0))
+                    raise
+                if any(team["teamId"] == target_id for team in teams):
+                    progress["known"][shortcut] = competition
+                # Retain previously known competitions even if membership disappears.
+                progress["pending"].pop(0)
+        except UpdateFailed as err:
+            _LOGGER.warning("Incomplete competition discovery for %s: %s", name, err)
+        participating = list(progress["known"].values())
+        if progress["pending"] == []:
+            self._discovery_cache[key] = (monotonic(), target, participating)
+            del self.client.discovery_progress[key]
         return target, participating
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -227,7 +237,8 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             seen_match_ids = set()
             for competition in competitions:
                 matches = await self._async_fetch_list(API_URL_SEASON_MATCHES.format(
-                    league_shortcut=competition["league_shortcut"], season=season
+                    league_shortcut=quote(competition["league_shortcut"], safe=""),
+                    season=quote(season, safe=""),
                 ))
                 for match in matches:
                     teams = [match.get("team1"), match.get("team2")]
@@ -462,6 +473,7 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "current_match": current_match,
                 "next_match": next_match,
                 "competitions": competitions,
+                "discovery_complete": key not in self.client.discovery_progress,
                 "upcoming_matches": upcoming_matches,
             }
 

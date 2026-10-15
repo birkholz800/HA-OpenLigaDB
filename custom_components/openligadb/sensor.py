@@ -124,6 +124,7 @@ class OpenLigaDBTeamSensor(CoordinatorEntity[OpenLigaDBDataUpdateCoordinator], S
             "current_match": t_data.get("current_match"),
             "next_match": t_data.get("next_match"),
             "competitions": t_data.get("competitions", []),
+            "discovery_complete": t_data.get("discovery_complete", False),
             "upcoming_matches": t_data.get("upcoming_matches", []),
         }
 

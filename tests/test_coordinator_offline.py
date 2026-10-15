@@ -70,13 +70,15 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
             await self.c._async_discover_team(KEY)
         self.assertEqual(self.c._async_fetch_list.await_count, 4)
 
-    async def test_discovery_failure_is_atomic_and_retry_succeeds(self):
+    async def test_partial_discovery_is_not_complete_and_retry_succeeds(self):
         self.c.team_ids.clear()
         self.routes["/getavailableteams/cup/2031"] = UpdateFailed("offline failure")
-        with self.assertRaisesRegex(UpdateFailed, "cup"):
-            await self.c._async_discover_team(KEY)
+        target, competitions = await self.c._async_discover_team(KEY)
+        self.assertEqual(target, TEAM)
+        self.assertEqual(len(competitions), 1)
         self.assertEqual(self.c._discovery_cache, {})
-        self.assertEqual(self.c.team_ids, {})
+        self.assertIn(KEY, self.c.client.discovery_progress)
+        self.assertEqual(self.c.team_ids, {KEY: 7})
         self.routes["/getavailableteams/cup/2031"] = [TEAM]
         self.assertEqual(len((await self.c._async_discover_team(KEY))[1]), 2)
 

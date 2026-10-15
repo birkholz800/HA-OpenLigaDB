@@ -100,7 +100,7 @@ class OfflineEnvironment:
         module("_offline_openligadb", __path__=[str(root)])
         self.stack.enter_context(patch.dict(sys.modules, modules))
         try:
-            for name in ("const", "coordinator", "config_flow"):
+            for name in ("const", "client", "coordinator", "config_flow"):
                 fullname = f"_offline_openligadb.{name}"
                 spec = importlib.util.spec_from_file_location(fullname, root / f"{name}.py")
                 loaded = importlib.util.module_from_spec(spec)
@@ -108,7 +108,8 @@ class OfflineEnvironment:
                 spec.loader.exec_module(loaded)
                 setattr(self, name, loaded)
             self.stack.enter_context(patch.object(self.coordinator, "datetime", FrozenDateTime))
-            self.hass = SimpleNamespace(session=Mock(), bus=SimpleNamespace(async_fire=Mock()))
+            self.hass = SimpleNamespace(data={}, session=Mock(), bus=SimpleNamespace(async_fire=Mock()))
+            self.stack.enter_context(patch.object(self.client, "REQUEST_INTERVAL", 0))
             self.hass.session.get.side_effect = AssertionError("Unmocked HTTP request")
             return self
         except BaseException:
@@ -120,8 +121,9 @@ class OfflineEnvironment:
 
 
 class Response:
-    def __init__(self, payload=None, error=None):
+    def __init__(self, payload=None, error=None, status=200, headers=None):
         self.payload, self.error = payload, error
+        self.status, self.headers = status, headers or {}
 
     async def __aenter__(self):
         return self

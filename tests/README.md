@@ -18,8 +18,14 @@ the command above so production directories are not modified.
 Coverage includes cross-competition numeric team identity (including renamed
 teams and same-name non-matches), legacy name resolution, chronological next/last
 and upcoming matches, deduplication, upcoming limit, live exclusion, discovery
-cache expiry and atomic failure/retry, malformed responses, dynamic/historical
+cache expiry and partial failure/retry, malformed responses, dynamic/historical
 league options, editable season validation, team IDs and encoded URLs.
+
+Shared-client tests additionally cover 429 cooldown across recreated coordinators
+and config flows, numeric/date Retry-After and fallback, successful team response
+reuse during cooldown, concurrent request coalescing and pacing, bounded discovery
+of a 100-competition season, resumed progress, and retained known/upcoming cup
+matches. Clock/sleep boundaries are mocked; tests do not wait for real cooldowns.
 
 Scope: these are unit tests, not Home Assistant integration tests. Stubs capture
 form schemas but do not implement voluptuous validation, HA lifecycle, duplicate

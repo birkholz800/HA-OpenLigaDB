@@ -9,7 +9,7 @@ import aiohttp
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from .client import get_client
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -42,10 +42,7 @@ class OpenLigaDBConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _async_fetch_list(self, url: str) -> list[dict[str, Any]]:
         """Fetch an API list without silently substituting static data."""
-        session = async_get_clientsession(self.hass)
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
+        data = await get_client(self.hass).fetch(url)
         if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
             raise ValueError("Expected a list of objects from OpenLigaDB")
         return data

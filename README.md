@@ -60,14 +60,23 @@ A powerful Home Assistant Custom Integration for integrating match data, live sc
 
 Die Ligaauswahl lädt alle von OpenLigaDB angebotenen Liga-Kürzel dynamisch. Beim Einrichten ist das aktuelle Kalenderjahr voreingestellt; die Saison bleibt editierbar. OpenLigaDB verwendet üblicherweise das Startjahr einer Saison: Für 2025/26 ist deshalb `2025` einzutragen, auch wenn das Kalenderjahr bereits 2026 ist. Historische Liga-Kürzel benötigen eine dazu passende Saison.
 
-Bei Vereinssensoren dient die gewählte Liga zur Vereinsauswahl. Anschließend werden automatisch alle Wettbewerbe derselben Saison nach der Team-ID durchsucht, etwa Bundesliga, DFB-Pokal und Champions League. Voraussetzung ist, dass OpenLigaDB den Wettbewerb und den Verein mit derselben Team-ID führt. Fehlende Spielpläne können nicht ergänzt werden. Die Wettbewerbssuche wird 24 Stunden zwischengespeichert; beim ersten Laden entstehen zusätzliche API-Abfragen. Fehlerhafte Teilabfragen machen den Sensor vorübergehend nicht verfügbar, statt einen unvollständigen Spielplan als vollständig auszugeben.
+Bei Vereinssensoren dient die gewählte Liga zur Vereinsauswahl. Anschließend werden automatisch alle Wettbewerbe derselben Saison nach der Team-ID durchsucht, etwa Bundesliga, DFB-Pokal und Champions League. Voraussetzung ist, dass OpenLigaDB den Wettbewerb und den Verein mit derselben Team-ID führt. Fehlende Spielpläne können nicht ergänzt werden. Die Wettbewerbssuche erfolgt schrittweise: Pro Aktualisierung und Verein werden höchstens drei weitere Wettbewerbe derselben Saison geprüft (zusätzlich zur Ursprungsliga und zum Ligakatalog). Es gibt keinen parallelen Komplettabruf aller Teamlisten. Bereits gefundene Wettbewerbe und deren kommende Spiele bleiben während der Suche berücksichtigt. `discovery_complete: false` kennzeichnet eine noch unvollständige Suche; `next_match` ist dann nur das nächste Spiel aus den bisher bekannten Wettbewerben. Erst nach erfolgreicher Prüfung aller Kandidaten wird die Suche für 24 Stunden als vollständig zwischengespeichert. Fehlgeschlagene Kandidaten werden später erneut geprüft; bekannte Wettbewerbe werden bei einer erneuten Suche nicht entfernt.
 
 - `last_match`, `current_match` und `next_match` berücksichtigen alle gefundenen Wettbewerbe.
 - `upcoming_matches` enthält bis zu 20 kommende Spiele, chronologisch sortiert.
 - `competitions` enthält die gefundenen Wettbewerbe.
+- `discovery_complete` zeigt an, ob alle Kandidaten der letzten Suche erfolgreich geprüft wurden.
 - Jedes Spiel enthält zusätzlich `league_name`, `league_shortcut` und `season`.
 
 Bestehende Einträge behalten ihre konfigurierte Saison und Entity-ID. Bei alten Vereinseinträgen wird die Team-ID über einen eindeutigen vollständigen Namen oder Kurznamen aufgelöst. Nicht eindeutig auflösbare alte Freitext-Namen müssen durch erneutes Einrichten mit der Vereinsauswahl ersetzt werden.
+
+### API-Schutz und Einschränkungen
+
+Alle Einträge und Konfigurationsdialoge derselben Home-Assistant-Instanz teilen einen API-Client. Netzwerkabfragen laufen einzeln mit mindestens einer Sekunde Abstand zwischen den Starts. Erfolgreiche Teamlisten und der Ligakatalog werden 24 Stunden, Spiel-/Tabellendaten 30 Sekunden zwischengespeichert. Erfolgreiche Teilabfragen, Suchfortschritt und bekannte Wettbewerbe überleben das Neuerstellen eines Coordinators und das Entladen eines Eintrags, jedoch keinen Home-Assistant-Neustart.
+
+HTTP 429 aktiviert eine gemeinsame Sperre: `Retry-After` wird sowohl als Sekundenwert als auch als HTTP-Datum berücksichtigt, mit mindestens 60 Sekunden Wartefrist (auch bei fehlendem/ungültigem Header). Währenddessen werden nur noch frische Cache-Treffer bedient; andere Abfragen scheitern sofort. Es gibt keine internen Wiederholungsschleifen und kein minutenlanges Warten im Setup. Home Assistant wiederholt fehlgeschlagene Setups bzw. Aktualisierungen nach seinem eigenen Zeitplan; Konfigurationsdialoge melden einen Verbindungsfehler.
+
+Eine große Saison benötigt mehrere reguläre Aktualisierungen (normalerweise alle 15 Minuten), bis alle Wettbewerbe entdeckt sind. Bei dauerhaft fehlerhaften Kandidaten bleibt `discovery_complete` falsch. Fehler bei optionalen Suchabfragen allein verwerfen keine bekannten Wettbewerbe. Können aber benötigte Spielpläne oder die Ursprungsteam-Liste nicht geladen werden, kann der Sensor weiterhin vorübergehend nicht verfügbar werden; veraltete Spielpläne werden nicht als aktuelle Daten ausgegeben. Eine API-Sperre kann daher auch weiterhin einen Setup-Retry auslösen, ohne einen neuen Request-Sturm zu erzeugen.
 
 ### Mehrere Wettbewerbe gleichzeitig anzeigen
 
