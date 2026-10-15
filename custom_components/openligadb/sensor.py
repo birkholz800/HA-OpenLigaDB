@@ -8,6 +8,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -33,7 +34,7 @@ async def async_setup_entry(
 
     entry_type = entry.data.get(CONF_ENTRY_TYPE)
     league_shortcut = entry.data.get(CONF_LEAGUE_SHORTCUT, "bl1")
-    season = str(entry.data.get(CONF_SEASON, "2024"))
+    season = str(entry.data.get(CONF_SEASON, dt_util.now().year))
 
     entities: list[SensorEntity] = []
 
@@ -122,6 +123,8 @@ class OpenLigaDBTeamSensor(CoordinatorEntity[OpenLigaDBDataUpdateCoordinator], S
             "last_match": t_data.get("last_match"),
             "current_match": t_data.get("current_match"),
             "next_match": t_data.get("next_match"),
+            "competitions": t_data.get("competitions", []),
+            "upcoming_matches": t_data.get("upcoming_matches", []),
         }
 
 

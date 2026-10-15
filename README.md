@@ -56,6 +56,38 @@ A powerful Home Assistant Custom Integration for integrating match data, live sc
 
 ---
 
+## Wettbewerbsübergreifende Vereinsspiele
+
+Die Ligaauswahl lädt alle von OpenLigaDB angebotenen Liga-Kürzel dynamisch. Beim Einrichten ist das aktuelle Kalenderjahr voreingestellt; die Saison bleibt editierbar. OpenLigaDB verwendet üblicherweise das Startjahr einer Saison: Für 2025/26 ist deshalb `2025` einzutragen, auch wenn das Kalenderjahr bereits 2026 ist. Historische Liga-Kürzel benötigen eine dazu passende Saison.
+
+Bei Vereinssensoren dient die gewählte Liga zur Vereinsauswahl. Anschließend werden automatisch alle Wettbewerbe derselben Saison nach der Team-ID durchsucht, etwa Bundesliga, DFB-Pokal und Champions League. Voraussetzung ist, dass OpenLigaDB den Wettbewerb und den Verein mit derselben Team-ID führt. Fehlende Spielpläne können nicht ergänzt werden. Die Wettbewerbssuche wird 24 Stunden zwischengespeichert; beim ersten Laden entstehen zusätzliche API-Abfragen. Fehlerhafte Teilabfragen machen den Sensor vorübergehend nicht verfügbar, statt einen unvollständigen Spielplan als vollständig auszugeben.
+
+- `last_match`, `current_match` und `next_match` berücksichtigen alle gefundenen Wettbewerbe.
+- `upcoming_matches` enthält bis zu 20 kommende Spiele, chronologisch sortiert.
+- `competitions` enthält die gefundenen Wettbewerbe.
+- Jedes Spiel enthält zusätzlich `league_name`, `league_shortcut` und `season`.
+
+Bestehende Einträge behalten ihre konfigurierte Saison und Entity-ID. Bei alten Vereinseinträgen wird die Team-ID über einen eindeutigen vollständigen Namen oder Kurznamen aufgelöst. Nicht eindeutig auflösbare alte Freitext-Namen müssen durch erneutes Einrichten mit der Vereinsauswahl ersetzt werden.
+
+### Mehrere Wettbewerbe gleichzeitig anzeigen
+
+In einer Markdown-Karte `sensor.openligadb_dein_verein` durch die tatsächliche Entity-ID ersetzen:
+
+```yaml
+type: markdown
+content: >-
+  {% for match in state_attr('sensor.openligadb_dein_verein', 'upcoming_matches') or [] %}
+  **{{ match.league_name }}** · {{ as_timestamp(match.date) | timestamp_custom('%d.%m.%Y %H:%M') }}
+
+  {{ match.home_team_name }} – {{ match.away_team_name }}
+
+  {% endfor %}
+```
+
+### Diese lokale Änderung installieren
+
+Den Ordner `custom_components/openligadb` aus dieser Version nach `/config/custom_components/openligadb` der Home-Assistant-Installation kopieren (vorher sichern) und Home Assistant neu starten. Ein HACS-Update aus dem ursprünglichen Repository kann diese lokalen Änderungen überschreiben; für dauerhafte Nutzung empfiehlt sich ein eigener Fork als HACS-Repository.
+
 ## 🖼️ Lovelace Dashboard Mardown Cards
 
 ### 1. Match Card with Crests, Scores & Goal Scorers / Cards

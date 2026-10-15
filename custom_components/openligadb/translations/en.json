@@ -4,36 +4,31 @@
       "user": {
         "title": "OpenLigaDB Configurator",
         "description": "Select the type of sensor you want to create.",
-        "data": {
-          "entry_type": "Sensor Type"
-        }
+        "data": {"entry_type": "Sensor Type"}
       },
       "league": {
         "title": "Configure League Table",
-        "description": "Select the league shortcut and season.",
-        "data": {
-          "league_shortcut": "League Shortcut",
-          "season": "Season (e.g., 2024)"
-        }
+        "description": "Select a league from OpenLigaDB and the season. The season is editable.",
+        "data": {"league_shortcut": "League Shortcut", "season": "Season (starting year)"}
       },
       "team_league_select": {
         "title": "Team Sensor: Select League",
-        "description": "Select the league for your team.",
-        "data": {
-          "league_shortcut": "League Shortcut",
-          "season": "Season (e.g., 2024)"
-        }
+        "description": "Select a competition for your team and the season. You can edit the season; other competitions are discovered automatically for that season.",
+        "data": {"league_shortcut": "League Shortcut", "season": "Season (starting year)"}
       },
       "team_select": {
         "title": "Select Team",
-        "description": "Select your team from the list or enter its name.",
-        "data": {
-          "team_name": "Team Name"
-        }
+        "description": "Select your team by name and OpenLigaDB team ID from the list.",
+        "data": {"team_id": "Team"}
       }
     },
-    "abort": {
-      "already_configured": "This sensor is already configured."
-    }
+    "error": {
+      "cannot_connect": "Cannot connect to OpenLigaDB. Check your connection and submit the form again to retry.",
+      "invalid_response": "OpenLigaDB returned no valid data. Please try again later.",
+      "invalid_season": "The selected league is not available for this season. Please change the season or league.",
+      "no_teams": "No teams are available for this league and season. Please select another league or season.",
+      "invalid_team": "Please select a team from the list."
+    },
+    "abort": {"already_configured": "This sensor is already configured."}
   }
 }

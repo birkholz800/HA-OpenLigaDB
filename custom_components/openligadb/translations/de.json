@@ -4,36 +4,31 @@
       "user": {
         "title": "OpenLigaDB Konfigurator",
         "description": "Wähle aus, welche Art von Sensor du anlegen möchtest.",
-        "data": {
-          "entry_type": "Sensor-Typ"
-        }
+        "data": {"entry_type": "Sensor-Typ"}
       },
       "league": {
         "title": "Liga-Tabelle konfigurieren",
-        "description": "Wähle die Liga und die Saison aus.",
-        "data": {
-          "league_shortcut": "Liga-Kürzel",
-          "season": "Saison (z.B. 2024)"
-        }
+        "description": "Wähle eine Liga aus OpenLigaDB und die Saison. Die Saison ist editierbar.",
+        "data": {"league_shortcut": "Liga-Kürzel", "season": "Saison (Startjahr)"}
       },
       "team_league_select": {
         "title": "Team-Sensor: Liga-Auswahl",
-        "description": "Wähle die Liga deines Teams.",
-        "data": {
-          "league_shortcut": "Liga-Kürzel",
-          "season": "Saison (z.B. 2024)"
-        }
+        "description": "Wähle einen Wettbewerb deines Teams und die Saison. Die Saison ist editierbar; weitere Wettbewerbe werden automatisch für diese Saison ermittelt.",
+        "data": {"league_shortcut": "Liga-Kürzel", "season": "Saison (Startjahr)"}
       },
       "team_select": {
         "title": "Team auswählen",
-        "description": "Wähle dein Team aus der Liste oder gib den Namen ein.",
-        "data": {
-          "team_name": "Team-Name"
-        }
+        "description": "Wähle dein Team anhand von Name und OpenLigaDB-Team-ID aus der Liste.",
+        "data": {"team_id": "Team"}
       }
     },
-    "abort": {
-      "already_configured": "Dieser Sensor ist bereits konfiguriert."
-    }
+    "error": {
+      "cannot_connect": "OpenLigaDB ist nicht erreichbar. Prüfe die Verbindung und sende das Formular erneut, um es nochmals zu versuchen.",
+      "invalid_response": "OpenLigaDB hat keine gültigen Daten geliefert. Bitte versuche es später erneut.",
+      "invalid_season": "Für diese Liga ist die eingegebene Saison nicht verfügbar. Bitte ändere die Saison oder die Liga.",
+      "no_teams": "Für diese Liga und Saison sind keine Teams verfügbar. Bitte wähle eine andere Liga oder Saison.",
+      "invalid_team": "Bitte wähle ein Team aus der Liste."
+    },
+    "abort": {"already_configured": "Dieser Sensor ist bereits konfiguriert."}
   }
 }

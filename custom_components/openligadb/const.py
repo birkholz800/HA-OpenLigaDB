@@ -10,6 +10,7 @@ LIVE_UPDATE_INTERVAL_SECONDS: Final = 60
 
 # API Endpoints
 API_BASE_URL: Final = "https://api.openligadb.de"
+API_URL_AVAILABLE_LEAGUES: Final = f"{API_BASE_URL}/getavailableleagues"
 API_URL_TABLE: Final = f"{API_BASE_URL}/getbltable/{{league_shortcut}}/{{season}}"
 API_URL_CURRENT_GROUP: Final = f"{API_BASE_URL}/getcurrentgroup/{{league_shortcut}}"
 API_URL_SEASON_MATCHES: Final = f"{API_BASE_URL}/getmatchdata/{{league_shortcut}}/{{season}}"
@@ -29,16 +30,6 @@ CONF_TEAM_NAME: Final = "team_name"
 CONF_LEAGUE_NAME: Final = "league_name"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 
-# Predefined popular leagues
-PREDEFINED_LEAGUES: Final[dict[str, str]] = {
-    "bl1": "1. Bundesliga (bl1)",
-    "bl2": "2. Bundesliga (bl2)",
-    "bl3": "3. Liga (bl3)",
-    "dfb": "DFB-Pokal (dfb)",
-    "bl1w": "1. Frauen-Bundesliga (bl1w)",
-    "atbl1": "Admiral Bundesliga AT (atbl1)",
-    "chsl": "Super League CH (chsl)",
-}
 
 # Events
 EVENT_OPENLIGADB_GOAL: Final = "openligadb_goal"
