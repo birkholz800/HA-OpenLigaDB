@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
-from time import monotonic
 from typing import Any
 from urllib.parse import quote
 
@@ -15,10 +14,10 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .client import get_client
 from .const import (
-    API_URL_AVAILABLE_LEAGUES,
     API_URL_AVAILABLE_TEAMS,
     API_URL_CURRENT_GROUP,
-    API_URL_SEASON_MATCHES,
+    API_URL_TEAM_MATCHES,
+    TEAM_MATCH_WINDOW_WEEKS,
     API_URL_TABLE,
     DEFAULT_UPDATE_INTERVAL_MINUTES,
     DOMAIN,
@@ -67,7 +66,6 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.league_shortcuts = league_shortcuts
         self.team_filters = team_filters
         self.team_ids = dict(team_ids or {})
-        self._discovery_cache = self.client.discovery_cache
         self._previous_goals: dict[int, int] = {}  # match_id -> count of goals
         self._previous_live_matches: set[int] = set()  # set of live match_ids
 
@@ -85,21 +83,8 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"Invalid list response from {url}")
         return result
 
-    async def _async_discover_team(
-        self, key: tuple[str, str, str]
-    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        """Serialize shared discovery progress, including across entry retries."""
-        async with self.client.discovery_lock:
-            return await self._async_discover_team_locked(key)
-
-    async def _async_discover_team_locked(
-        self, key: tuple[str, str, str]
-    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        """Probe at most three additional competitions; retain partial progress."""
-        cached = self._discovery_cache.get(key)
-        if cached and monotonic() - cached[0] < 24 * 60 * 60:
-            return cached[1], cached[2]
-
+    async def _async_resolve_team(self, key: tuple[str, str, str]) -> dict[str, Any]:
+        """Resolve the stable ID from the origin; never discover competitions."""
         origin, season, name = key
         target_id = self.team_ids.get(key)
         if target_id is not None and (type(target_id) is not int or target_id <= 0):
@@ -125,56 +110,7 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if target is None:
             raise UpdateFailed(f"Team ID {target_id} not found in {origin}/{season}")
         self.team_ids[key] = target_id
-        progress = self.client.discovery_progress.get(key)
-        if progress is None:
-            known = {c["league_shortcut"]: c for c in cached[2]} if cached else {}
-            known.setdefault(origin, {
-                "league_shortcut": origin, "league_name": origin, "season": season,
-            })
-            progress = {"known": known, "pending": None}
-            self.client.discovery_progress[key] = progress
-        try:
-            if progress["pending"] is None:
-                leagues = await self._async_fetch_list(API_URL_AVAILABLE_LEAGUES)
-                candidates = {}
-                for league in leagues:
-                    if str(league.get("leagueSeason")) != season:
-                        continue
-                    shortcut = league.get("leagueShortcut")
-                    if not isinstance(shortcut, str) or not shortcut:
-                        raise UpdateFailed("Invalid league shortcut in discovery response")
-                    candidates[shortcut] = {
-                        "league_shortcut": shortcut,
-                        "league_name": league.get("leagueName") or shortcut,
-                        "season": season,
-                    }
-                if origin in candidates:
-                    progress["known"][origin] = candidates.pop(origin)
-                progress["pending"] = list(candidates.values())
-            for _ in range(min(3, len(progress["pending"]))):
-                competition = progress["pending"][0]
-                shortcut = competition["league_shortcut"]
-                try:
-                    teams = await self._async_fetch_list(API_URL_AVAILABLE_TEAMS.format(
-                        league_shortcut=quote(shortcut, safe=""), season=quote(season, safe="")
-                    ))
-                    if any(type(team.get("teamId")) is not int for team in teams):
-                        raise UpdateFailed("Invalid team ID in discovery response")
-                except UpdateFailed:
-                    # A broken competition must not starve the rest of the queue.
-                    progress["pending"].append(progress["pending"].pop(0))
-                    raise
-                if any(team["teamId"] == target_id for team in teams):
-                    progress["known"][shortcut] = competition
-                # Retain previously known competitions even if membership disappears.
-                progress["pending"].pop(0)
-        except UpdateFailed as err:
-            _LOGGER.warning("Incomplete competition discovery for %s: %s", name, err)
-        participating = list(progress["known"].values())
-        if progress["pending"] == []:
-            self._discovery_cache[key] = (monotonic(), target, participating)
-            del self.client.discovery_progress[key]
-        return target, participating
+        return target
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from OpenLigaDB for leagues and teams."""
@@ -229,39 +165,36 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # 2. Fetch Matches for Teams & Process Matches
         for league_shortcut, season, team_identifier in self.team_filters:
             key = (league_shortcut, season, team_identifier)
-            target, competitions = await self._async_discover_team(key)
+            target = await self._async_resolve_team(key)
             target_team_id = target["teamId"]
             target_team_name = target.get("teamName") or team_identifier
             target_team_icon = target.get("teamIconUrl")
             team_matches = []
             seen_match_ids = set()
-            for competition in competitions:
-                matches = await self._async_fetch_list(API_URL_SEASON_MATCHES.format(
-                    league_shortcut=quote(competition["league_shortcut"], safe=""),
-                    season=quote(season, safe=""),
-                ))
-                for match in matches:
-                    teams = [match.get("team1"), match.get("team2")]
-                    if not any(
-                        isinstance(team, dict)
-                        and type(team.get("teamId")) is int
-                        and team["teamId"] == target_team_id
-                        for team in teams
-                    ):
-                        continue
-                    match_id = match.get("matchID")
-                    if type(match_id) is not int:
-                        raise UpdateFailed("Missing or invalid match ID in match response")
-                    if match_id in seen_match_ids:
-                        continue
-                    seen_match_ids.add(match_id)
-                    team_matches.append({**match, **competition})
+            matches = await self._async_fetch_list(API_URL_TEAM_MATCHES.format(
+                team_id=target_team_id, weeks=TEAM_MATCH_WINDOW_WEEKS,
+            ))
+            for match in matches:
+                teams = [match.get("team1"), match.get("team2")]
+                if not any(
+                    isinstance(team, dict)
+                    and type(team.get("teamId")) is int
+                    and team["teamId"] == target_team_id
+                    for team in teams
+                ):
+                    continue
+                match_id = match.get("matchID")
+                if type(match_id) is not int or match_id <= 0:
+                    raise UpdateFailed("Missing or invalid match ID in match response")
+                if match_id in seen_match_ids:
+                    continue
+                seen_match_ids.add(match_id)
+                team_matches.append(match)
 
             # Categorize matches: finished (last), current (live), next (upcoming)
             last_match = None
             current_match = None
             next_match = None
-            upcoming_matches = []
 
             sorted_matches = sorted(
                 team_matches,
@@ -283,6 +216,8 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if m_date and not is_finished:
                     time_diff = (now - m_date).total_seconds()
                     if -900 <= time_diff <= 9000:
+                        has_active_live_match = True
+                    if 0 <= time_diff <= 9000:
                         is_live = True
                         has_active_live_match = True
 
@@ -383,9 +318,9 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 match_dict = {
                     "match_id": m.get("matchID"),
                     "date": m_date.isoformat() if m_date else None,
-                    "league_shortcut": m["league_shortcut"],
-                    "league_name": m["league_name"],
-                    "season": m["season"],
+                    "league_shortcut": m.get("leagueShortcut"),
+                    "league_name": m.get("leagueName"),
+                    "season": str(m["leagueSeason"]) if m.get("leagueSeason") is not None else None,
                     "group": group.get("groupName") or "",
                     "is_home": is_home,
                     "home_team_name": t1_name,
@@ -408,10 +343,6 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "away_cards": away_cards,
                     "location": loc_str,
                 }
-
-                if not is_finished and not is_live and m_date and m_date > now:
-                    if len(upcoming_matches) < 20:
-                        upcoming_matches.append(match_dict)
 
                 # Check for Goal & Match Start/End Events
                 match_id = m.get("matchID")
@@ -472,9 +403,6 @@ class OpenLigaDBDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "last_match": last_match,
                 "current_match": current_match,
                 "next_match": next_match,
-                "competitions": competitions,
-                "discovery_complete": key not in self.client.discovery_progress,
-                "upcoming_matches": upcoming_matches,
             }
 
         # Dynamically adjust polling interval based on live matches

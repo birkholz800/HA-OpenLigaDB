@@ -34,6 +34,15 @@ class Coordinator:
         self.update_interval = update_interval
 
 
+class CoordinatorEntity:
+    @classmethod
+    def __class_getitem__(cls, item):
+        return cls
+
+    def __init__(self, coordinator):
+        self.coordinator = coordinator
+
+
 class ConfigFlow:
     def __init_subclass__(cls, **kwargs):
         pass
@@ -88,19 +97,22 @@ class OfflineEnvironment:
 
         module("aiohttp", ClientError=ClientError, ClientTimeout=lambda **kw: SimpleNamespace(**kw))
         module("voluptuous", Schema=Schema, Required=Required, In=In)
-        entries = module("homeassistant.config_entries", ConfigFlow=ConfigFlow)
+        entries = module("homeassistant.config_entries", ConfigFlow=ConfigFlow, ConfigEntry=object)
+        module("homeassistant.components")
+        module("homeassistant.components.sensor", SensorEntity=type("SensorEntity", (), {}))
+        module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
         module("homeassistant", config_entries=entries)
         module("homeassistant.core", HomeAssistant=object)
         module("homeassistant.helpers")
         module("homeassistant.helpers.aiohttp_client", async_get_clientsession=lambda hass: hass.session)
-        module("homeassistant.helpers.update_coordinator", DataUpdateCoordinator=Coordinator, UpdateFailed=UpdateFailed)
+        module("homeassistant.helpers.update_coordinator", DataUpdateCoordinator=Coordinator, UpdateFailed=UpdateFailed, CoordinatorEntity=CoordinatorEntity)
         dt = module("homeassistant.util.dt", now=lambda: NOW)
         module("homeassistant.util", dt=dt)
         root = Path(__file__).resolve().parents[1] / "custom_components" / "openligadb"
         module("_offline_openligadb", __path__=[str(root)])
         self.stack.enter_context(patch.dict(sys.modules, modules))
         try:
-            for name in ("const", "client", "coordinator", "config_flow"):
+            for name in ("const", "client", "coordinator", "config_flow", "sensor"):
                 fullname = f"_offline_openligadb.{name}"
                 spec = importlib.util.spec_from_file_location(fullname, root / f"{name}.py")
                 loaded = importlib.util.module_from_spec(spec)

@@ -5,7 +5,7 @@ from email.utils import format_datetime
 from unittest.mock import AsyncMock, patch
 
 from offline_support import OfflineEnvironment, Response, UpdateFailed
-from test_coordinator_offline import KEY, TEAM, league, match
+from test_coordinator_offline import KEY, TEAM, match
 
 BASE = "https://api.openligadb.de"
 
@@ -78,43 +78,18 @@ class SharedClientTests(unittest.IsolatedAsyncioTestCase):
             await self.c._async_fetch_list(BASE + "/getavailableteams/cup/2031")
             sleep.assert_awaited_once_with(1)
 
-    async def test_incremental_budget_resume_and_known_upcoming_competitions(self):
+    async def test_team_endpoint_shared_cache_and_recreation(self):
         routes = {
             "/getavailableteams/bl1/2031": [TEAM],
-            "/getavailableleagues": [league("bl1")] + [league(f"cup{i}") for i in range(100)],
-            "/getmatchdata/bl1/2031": [match(1, 24)],
+            "/getmatchesbyteamid/7/26/26": [match(1, 24), match(2, 12, competition="ucl")],
         }
-        for i in range(100):
-            routes[f"/getavailableteams/cup{i}/2031"] = [TEAM] if i == 0 else []
-        routes["/getmatchdata/cup0/2031"] = [match(2, 12)]
         self.env.hass.session.get.side_effect = lambda url, **kw: Response(routes[url.removeprefix(BASE)])
-        first = (await self.c._async_update_data())["teams"][KEY]
-        self.assertFalse(first["discovery_complete"])
-        self.assertEqual(first["next_match"]["match_id"], 2)
-        self.assertEqual(len(first["competitions"]), 2)
-        self.assertNotIn(KEY, self.c._discovery_cache)
-        self.assertEqual(len(self.c.client.discovery_progress[KEY]["pending"]), 97)
-        # Recreated coordinators resume instead of probing the first three again.
-        other = self.coordinator()
-        second = (await other._async_update_data())["teams"][KEY]
-        self.assertEqual(second["upcoming_matches"], first["upcoming_matches"])
-        self.assertEqual(len(other.client.discovery_progress[KEY]["pending"]), 94)
-        urls = [call.args[0] for call in self.env.hass.session.get.call_args_list]
-        self.assertEqual(urls.count(BASE + "/getavailableteams/bl1/2031"), 1)
-        self.assertEqual(urls.count(BASE + "/getavailableteams/cup0/2031"), 1)
-        for _ in range(32):
-            await other._async_discover_team(KEY)
-        self.assertIn(KEY, other._discovery_cache)
-        self.assertNotIn(KEY, other.client.discovery_progress)
-
-    async def test_failed_probe_rotates_and_keeps_known_competitions_on_rescan(self):
-        self.c._discovery_cache[KEY] = (0, TEAM, [
-            {"league_shortcut": "bl1", "league_name": "bl1", "season": "2031"},
-            {"league_shortcut": "known", "league_name": "known", "season": "2031"}])
-        self.c._async_fetch_list = AsyncMock(side_effect=[
-            [TEAM], [league("broken"), league("new")], UpdateFailed("broken")])
-        with patch.object(self.env.coordinator, "monotonic", return_value=86400):
-            _, competitions = await self.c._async_discover_team(KEY)
-        self.assertEqual([c["league_shortcut"] for c in competitions], ["bl1", "known"])
-        self.assertEqual(self.c.client.discovery_progress[KEY]["pending"][0]["league_shortcut"], "new")
-        self.assertEqual(self.c._discovery_cache[KEY][0], 0)
+        with patch.object(self.env.client, "monotonic", return_value=100):
+            first = await self.c._async_update_data()
+            second = await self.coordinator()._async_update_data()
+        self.assertEqual(first, second)
+        self.assertEqual(first["teams"][KEY]["next_match"]["league_shortcut"], "ucl")
+        self.assertEqual(self.env.hass.session.get.call_count, 2)
+        with patch.object(self.env.client, "monotonic", return_value=130):
+            await self.c._async_update_data()
+        self.assertEqual(self.env.hass.session.get.call_count, 3)

@@ -60,38 +60,23 @@ A powerful Home Assistant Custom Integration for integrating match data, live sc
 
 Die Ligaauswahl lädt alle von OpenLigaDB angebotenen Liga-Kürzel dynamisch. Beim Einrichten ist das aktuelle Kalenderjahr voreingestellt; die Saison bleibt editierbar. OpenLigaDB verwendet üblicherweise das Startjahr einer Saison: Für 2025/26 ist deshalb `2025` einzutragen, auch wenn das Kalenderjahr bereits 2026 ist. Historische Liga-Kürzel benötigen eine dazu passende Saison.
 
-Bei Vereinssensoren dient die gewählte Liga zur Vereinsauswahl. Anschließend werden automatisch alle Wettbewerbe derselben Saison nach der Team-ID durchsucht, etwa Bundesliga, DFB-Pokal und Champions League. Voraussetzung ist, dass OpenLigaDB den Wettbewerb und den Verein mit derselben Team-ID führt. Fehlende Spielpläne können nicht ergänzt werden. Die Wettbewerbssuche erfolgt schrittweise: Pro Aktualisierung und Verein werden höchstens drei weitere Wettbewerbe derselben Saison geprüft (zusätzlich zur Ursprungsliga und zum Ligakatalog). Es gibt keinen parallelen Komplettabruf aller Teamlisten. Bereits gefundene Wettbewerbe und deren kommende Spiele bleiben während der Suche berücksichtigt. `discovery_complete: false` kennzeichnet eine noch unvollständige Suche; `next_match` ist dann nur das nächste Spiel aus den bisher bekannten Wettbewerben. Erst nach erfolgreicher Prüfung aller Kandidaten wird die Suche für 24 Stunden als vollständig zwischengespeichert. Fehlgeschlagene Kandidaten werden später erneut geprüft; bekannte Wettbewerbe werden bei einer erneuten Suche nicht entfernt.
+Bei Vereinssensoren dient die gewählte Liga/Saison nur zur Vereinsauswahl und Auflösung der numerischen Team-ID. Die Spiele werden direkt über den dokumentierten Endpunkt [`/getmatchesbyteamid/{teamId}/{weekCountPast}/{weekCountFuture}`](https://api.openligadb.de/swagger/v1/swagger.json) geladen — ohne Ligakatalog-Scan, Wettbewerbsliste oder schrittweise Entdeckung. Ein Live-Abruf für Team-ID 40 bestätigte Bundesliga (`bl1`), Champions League (`ucl`) und DFB-Pokal (`dfb`) in derselben Antwort.
 
-- `last_match`, `current_match` und `next_match` berücksichtigen alle gefundenen Wettbewerbe.
-- `upcoming_matches` enthält bis zu 20 kommende Spiele, chronologisch sortiert.
-- `competitions` enthält die gefundenen Wettbewerbe.
-- `discovery_complete` zeigt an, ob alle Kandidaten der letzten Suche erfolgreich geprüft wurden.
-- Jedes Spiel enthält zusätzlich `league_name`, `league_shortcut` und `season`.
+- `last_match`: das zeitlich letzte abgeschlossene Spiel.
+- `current_match`: ein noch nicht abgeschlossenes Spiel zwischen Anstoß und 150 Minuten danach (zeitbasierte Live-Heuristik, kein verlässlicher Live-Status der API).
+- `next_match`: das zeitlich nächste noch nicht abgeschlossene Spiel mit zukünftigem Anstoß, unabhängig vom Wettbewerb.
+- Jedes ausgewählte Spiel enthält `league_name`, `league_shortcut` und seine tatsächliche `season` aus der API.
+- Keine Saison-Spielplanattribute: `upcoming_matches`, `competitions` und `discovery_complete` entfallen. Karten mit diesen alten Attributen müssen auf `next_match` umgestellt werden.
 
-Bestehende Einträge behalten ihre konfigurierte Saison und Entity-ID. Bei alten Vereinseinträgen wird die Team-ID über einen eindeutigen vollständigen Namen oder Kurznamen aufgelöst. Nicht eindeutig auflösbare alte Freitext-Namen müssen durch erneutes Einrichten mit der Vereinsauswahl ersetzt werden.
+Bestehende Einträge behalten ihre Entity-/Unique-ID und konfigurierte Saison. Vereinssensoren sind jetzt bewusst **aktuelle Vereinssensoren**, keine historischen Saisonfilter: Auch Spiele einer neuen Saison werden berücksichtigt. Die ursprüngliche Saison bleibt für die Identitätsauflösung erhalten. Alte Freitext-Namen werden nur über einen eindeutigen vollständigen Namen oder Kurznamen aufgelöst; mehrdeutige Namen erfordern erneutes Einrichten mit der Vereinsauswahl. Tabellensensoren bleiben saisongebunden und unverändert.
 
 ### API-Schutz und Einschränkungen
 
-Alle Einträge und Konfigurationsdialoge derselben Home-Assistant-Instanz teilen einen API-Client. Netzwerkabfragen laufen einzeln mit mindestens einer Sekunde Abstand zwischen den Starts. Erfolgreiche Teamlisten und der Ligakatalog werden 24 Stunden, Spiel-/Tabellendaten 30 Sekunden zwischengespeichert. Erfolgreiche Teilabfragen, Suchfortschritt und bekannte Wettbewerbe überleben das Neuerstellen eines Coordinators und das Entladen eines Eintrags, jedoch keinen Home-Assistant-Neustart.
+Der Abruf umfasst **26 Wochen zurück und 26 Wochen voraus**, relativ zur aktuellen Serverzeit. Es wird innerhalb dieser Antwort chronologisch ausgewählt, nicht nur innerhalb der Bundesliga. Außerhalb dieses Fensters wird nicht gesucht; fehlende passende Spiele ergeben `null`. Das ist keine Garantie für einen vollständigen realen Spielplan: OpenLigaDB ist gemeinschaftlich gepflegt. Fehlende Begegnungen, noch nicht ausgeloste Pokalrunden, falsche Termine und separate Team-IDs desselben Vereins lassen sich nicht zuverlässig ergänzen. **Wichtig:** Der Live-Test des 26-Wochen-Endpunkts lieferte auch Community-/Testwettbewerbe (z. B. `bl1test`) mit derselben Team-ID. Die API dokumentiert keinen Filter für offizielle Wettbewerbe. Solche Einträge können deshalb auch als letztes/nächstes Spiel ausgewählt werden; ein garantiert offizieller Spielplan ist mit diesem Endpunkt allein nicht möglich. Es gibt keine unsichere Namenszusammenführung verschiedener IDs und keine Beschränkung auf vermeintlich kanonische Wettbewerbe; alle vom Team-Endpunkt gelieferten Wettbewerbe werden berücksichtigt.
 
-HTTP 429 aktiviert eine gemeinsame Sperre: `Retry-After` wird sowohl als Sekundenwert als auch als HTTP-Datum berücksichtigt, mit mindestens 60 Sekunden Wartefrist (auch bei fehlendem/ungültigem Header). Währenddessen werden nur noch frische Cache-Treffer bedient; andere Abfragen scheitern sofort. Es gibt keine internen Wiederholungsschleifen und kein minutenlanges Warten im Setup. Home Assistant wiederholt fehlgeschlagene Setups bzw. Aktualisierungen nach seinem eigenen Zeitplan; Konfigurationsdialoge melden einen Verbindungsfehler.
+Pro Aktualisierung wird ein Team-Spielabruf benötigt, zusätzlich bei kaltem Cache eine Teamliste der Ursprungsliga. Kein Abruf aller Liga-Spielpläne oder fremder Teamlisten. Alle Einträge und Konfigurationsdialoge teilen einen Client: Abfragen laufen einzeln mit mindestens einer Sekunde Abstand; erfolgreiche Teamlisten und der Ligakatalog werden 24 Stunden, Spiel-/Tabellendaten 30 Sekunden zwischengespeichert. Der Cache überlebt das Neuerstellen eines Coordinators, aber keinen Home-Assistant-Neustart. Regulär wird alle 15 Minuten aktualisiert, ab 15 Minuten vor einem Anstoß und während der Live-Heuristik jede Minute.
 
-Eine große Saison benötigt mehrere reguläre Aktualisierungen (normalerweise alle 15 Minuten), bis alle Wettbewerbe entdeckt sind. Bei dauerhaft fehlerhaften Kandidaten bleibt `discovery_complete` falsch. Fehler bei optionalen Suchabfragen allein verwerfen keine bekannten Wettbewerbe. Können aber benötigte Spielpläne oder die Ursprungsteam-Liste nicht geladen werden, kann der Sensor weiterhin vorübergehend nicht verfügbar werden; veraltete Spielpläne werden nicht als aktuelle Daten ausgegeben. Eine API-Sperre kann daher auch weiterhin einen Setup-Retry auslösen, ohne einen neuen Request-Sturm zu erzeugen.
-
-### Mehrere Wettbewerbe gleichzeitig anzeigen
-
-In einer Markdown-Karte `sensor.openligadb_dein_verein` durch die tatsächliche Entity-ID ersetzen:
-
-```yaml
-type: markdown
-content: >-
-  {% for match in state_attr('sensor.openligadb_dein_verein', 'upcoming_matches') or [] %}
-  **{{ match.league_name }}** · {{ as_timestamp(match.date) | timestamp_custom('%d.%m.%Y %H:%M') }}
-
-  {{ match.home_team_name }} – {{ match.away_team_name }}
-
-  {% endfor %}
-```
+HTTP 429 aktiviert eine gemeinsame Sperre entsprechend `Retry-After` (Sekunden oder HTTP-Datum), mindestens 60 Sekunden. Es gibt keine internen Wiederholungsschleifen. Schlägt der Team-Spielabruf fehl, schlägt die Aktualisierung fehl: Es wird **kein partielles Bundesliga-Ergebnis als nächstes Vereinsspiel** veröffentlicht. Home Assistant behandelt den Sensor dann als nicht verfügbar bzw. wiederholt das Setup. Die gemeinsame Drosselung kann 429 bei weiteren Anwendungen hinter derselben IP nicht vollständig verhindern.
 
 ### Diese lokale Änderung installieren
 

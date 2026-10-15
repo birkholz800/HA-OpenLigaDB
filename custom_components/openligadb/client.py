@@ -28,9 +28,7 @@ class OpenLigaDBClient:
         self.next_request = 0.0
         self.cooldown_until = 0.0
         self.cache = {}
-        self.discovery_cache = {}
-        self.discovery_progress = {}
-        self.discovery_lock = asyncio.Lock()
+
 
     def _check_cooldown(self):
         remaining = self.cooldown_until - monotonic()
