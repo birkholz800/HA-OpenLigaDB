@@ -3,92 +3,65 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/default)
 [![version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/custom-components/ha-openligadb)
 
-A powerful Home Assistant Custom Integration for integrating match data, live scores, and league standings directly from [OpenLigaDB.de](https://www.openligadb.de).
+Vereinsspiele, Ergebnisse und Tabellen von [OpenLigaDB](https://www.openligadb.de) für Home Assistant.
 
 ---
 
-## ⚽ Features
+## ⚽ Funktionen
 
-- **Team Sensors**:
-  - Team match state (e.g. `Live: 2 - 1`, `Upcoming (@ FC Bayern)`, `Finished: 3 - 1`).
-  - `last_match`: Last completed match with date, opponent, score, home/away status, goal scorers (separated by Home & Away) & card events.
-  - `current_match`: Live match details including minute & live score.
-  - `next_match`: Next upcoming match with ISO timestamp (ideal for HA countdown cards), opponent, venue & matchday.
-  - `entity_picture`: Automatically embeds official team crest/logo in Home Assistant UI.
+| Attribut | Inhalt |
+|---|---|
+| `last_match` | Letztes abgeschlossenes Vereinsspiel |
+| `current_match` | Laufendes Vereinsspiel (zeitbasiert erkannt) |
+| `next_match` | Nächstes Vereinsspiel |
+| `table` | Ligatabelle beim Tabellensensor |
 
-- **League Sensors**:
-  - State: Current matchday (e.g. `Matchday 4`).
-  - `table`: Full standings as a structured array (Rank, Team, Matches, Won, Draw, Lost, Goals For, Goals Against, Goal Diff, Points & Crest URL).
-
-- **Adaptive Polling Rate**:
-  - Default polling every 15 minutes.
-  - Automatically detects active live matches and switches to **1-minute polling** during live games.
-
-- **Event Triggers for Automations**:
-  - Fires `openligadb_goal` event when goals are scored live.
-  - Fires `openligadb_match_start` and `openligadb_match_end` events.
+- **Wettbewerbsübergreifend:** Bundesliga, Champions League, DFB-Pokal usw.
+- Spiele mit Ergebnis, Gegner, Termin, Wettbewerb und verfügbaren Tordaten.
+- Aktualisierung: **15 Minuten**, rund um Live-Spiele **1 Minute**.
+- Ereignisse: `openligadb_goal`, `openligadb_match_start`, `openligadb_match_end`.
 
 ---
 
-## 📦 Installation via HACS
+## 📦 Installation
 
-**Quick Install:** Click the badge to directly add this repository to your HACS instance, or follow the manual steps below.
-[![Open your Home Assistant instance and open a repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Belgadon&repository=HA-OpenLigaDB&category=integration)
+[![In HACS öffnen](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=birkholz800&repository=HA-OpenLigaDB&category=integration)
 
-**Manual Installation:**
-1. Open **HACS** in your Home Assistant dashboard.
-2. Click the three dots in the top right corner and select **Custom repositories**.
-3. Add the URL of this GitHub repository:
-   - **Repository**: `https://github.com/Belgadon/HA-OpenLigaDB`
-   - **Category**: `Integration`
-4. Click **Add** and then install the **OpenLigaDB** integration from the newly added repository.
-5. Restart Home Assistant.
+1. **HACS → Benutzerdefinierte Repositories** öffnen.
+2. `https://github.com/birkholz800/HA-OpenLigaDB` hinzufügen, Kategorie **Integration**.
+3. **OpenLigaDB** herunterladen und Home Assistant neu starten.
 
----
+Alternativ: `custom_components/openligadb` nach `/config/custom_components/openligadb` kopieren (vorher sichern), dann neu starten.
 
-## ⚙️ Configuration in Home Assistant
+## ⚙️ Einrichtung
 
-1. Go to **Settings** -> **Devices & Services** -> **Add Integration**.
-2. Search for **OpenLigaDB**.
-3. Choose what to set up:
-   - **Team Sensor**: Select the league (e.g. `bl1`) and your team (e.g. *FC Bayern München*, *BVB*, *Bayer 04 Leverkusen*).
-   - **League Sensor**: Select the league (e.g. `bl1` for 1. Bundesliga, `bl2`, `bl3`, `dfb`, etc.).
+1. **Einstellungen → Geräte & Dienste → Integration hinzufügen → OpenLigaDB**.
+2. **Verein** oder **Ligatabelle** wählen.
+3. Liga und Saison auswählen; beim Verein anschließend das Team wählen.
 
----
+- **Ligen:** dynamisch aus OpenLigaDB.
+- **Saison:** aktuelles Jahr vorausgewählt; für **2025/26 → `2025`** eintragen.
+- **Verein:** Liga/Saison dienen zur Vereinsauswahl; Spiele kommen aus allen Wettbewerben, auch über Saisonwechsel hinweg.
+- **Tabelle:** bleibt an die gewählte Liga/Saison gebunden.
 
-## Wettbewerbsübergreifende Vereinsspiele
+## ⚠️ Wichtig
 
-Die Ligaauswahl lädt alle von OpenLigaDB angebotenen Liga-Kürzel dynamisch. Beim Einrichten ist das aktuelle Kalenderjahr voreingestellt; die Saison bleibt editierbar. OpenLigaDB verwendet üblicherweise das Startjahr einer Saison: Für 2025/26 ist deshalb `2025` einzutragen, auch wenn das Kalenderjahr bereits 2026 ist. Historische Liga-Kürzel benötigen eine dazu passende Saison.
+- Suchfenster: **26 Wochen zurück/voraus**; ohne passendes Spiel ist das Attribut leer.
+- Nur vorhandene OpenLigaDB-Daten mit **derselben Team-ID** werden berücksichtigt.
+- **Community-/Testwettbewerbe können enthalten sein** und die Spielauswahl beeinflussen.
+- Live-Status ist zeitbasiert geschätzt, nicht von der API bestätigt.
+- API-Schutz: gemeinsame Zwischenspeicherung, maximal eine Anfrage pro Sekunde; bei **429** mindestens 60 Sekunden Pause gemäß `Retry-After`.
+- Abruffehler: Sensor vorübergehend nicht verfügbar, kein Bundesliga-Ersatzergebnis.
 
-Bei Vereinssensoren dient die gewählte Liga/Saison nur zur Vereinsauswahl und Auflösung der numerischen Team-ID. Die Spiele werden direkt über den dokumentierten Endpunkt [`/getmatchesbyteamid/{teamId}/{weekCountPast}/{weekCountFuture}`](https://api.openligadb.de/swagger/v1/swagger.json) geladen — ohne Ligakatalog-Scan, Wettbewerbsliste oder schrittweise Entdeckung. Ein Live-Abruf für Team-ID 40 bestätigte Bundesliga (`bl1`), Champions League (`ucl`) und DFB-Pokal (`dfb`) in derselben Antwort.
+**Update bestehender Einträge:** Entity-IDs bleiben erhalten. Alte Karten mit `upcoming_matches` auf `next_match` umstellen; `competitions` und `discovery_complete` entfallen. Nicht eindeutig auflösbare Freitext-Vereine neu einrichten.
 
-- `last_match`: das zeitlich letzte abgeschlossene Spiel.
-- `current_match`: ein noch nicht abgeschlossenes Spiel zwischen Anstoß und 150 Minuten danach (zeitbasierte Live-Heuristik, kein verlässlicher Live-Status der API).
-- `next_match`: das zeitlich nächste noch nicht abgeschlossene Spiel mit zukünftigem Anstoß, unabhängig vom Wettbewerb.
-- Jedes ausgewählte Spiel enthält `league_name`, `league_shortcut` und seine tatsächliche `season` aus der API.
-- Keine Saison-Spielplanattribute: `upcoming_matches`, `competitions` und `discovery_complete` entfallen. Karten mit diesen alten Attributen müssen auf `next_match` umgestellt werden.
-
-Bestehende Einträge behalten ihre Entity-/Unique-ID und konfigurierte Saison. Vereinssensoren sind jetzt bewusst **aktuelle Vereinssensoren**, keine historischen Saisonfilter: Auch Spiele einer neuen Saison werden berücksichtigt. Die ursprüngliche Saison bleibt für die Identitätsauflösung erhalten. Alte Freitext-Namen werden nur über einen eindeutigen vollständigen Namen oder Kurznamen aufgelöst; mehrdeutige Namen erfordern erneutes Einrichten mit der Vereinsauswahl. Tabellensensoren bleiben saisongebunden und unverändert.
-
-### API-Schutz und Einschränkungen
-
-Der Abruf umfasst **26 Wochen zurück und 26 Wochen voraus**, relativ zur aktuellen Serverzeit. Es wird innerhalb dieser Antwort chronologisch ausgewählt, nicht nur innerhalb der Bundesliga. Außerhalb dieses Fensters wird nicht gesucht; fehlende passende Spiele ergeben `null`. Das ist keine Garantie für einen vollständigen realen Spielplan: OpenLigaDB ist gemeinschaftlich gepflegt. Fehlende Begegnungen, noch nicht ausgeloste Pokalrunden, falsche Termine und separate Team-IDs desselben Vereins lassen sich nicht zuverlässig ergänzen. **Wichtig:** Der Live-Test des 26-Wochen-Endpunkts lieferte auch Community-/Testwettbewerbe (z. B. `bl1test`) mit derselben Team-ID. Die API dokumentiert keinen Filter für offizielle Wettbewerbe. Solche Einträge können deshalb auch als letztes/nächstes Spiel ausgewählt werden; ein garantiert offizieller Spielplan ist mit diesem Endpunkt allein nicht möglich. Es gibt keine unsichere Namenszusammenführung verschiedener IDs und keine Beschränkung auf vermeintlich kanonische Wettbewerbe; alle vom Team-Endpunkt gelieferten Wettbewerbe werden berücksichtigt.
-
-Pro Aktualisierung wird ein Team-Spielabruf benötigt, zusätzlich bei kaltem Cache eine Teamliste der Ursprungsliga. Kein Abruf aller Liga-Spielpläne oder fremder Teamlisten. Alle Einträge und Konfigurationsdialoge teilen einen Client: Abfragen laufen einzeln mit mindestens einer Sekunde Abstand; erfolgreiche Teamlisten und der Ligakatalog werden 24 Stunden, Spiel-/Tabellendaten 30 Sekunden zwischengespeichert. Der Cache überlebt das Neuerstellen eines Coordinators, aber keinen Home-Assistant-Neustart. Regulär wird alle 15 Minuten aktualisiert, ab 15 Minuten vor einem Anstoß und während der Live-Heuristik jede Minute.
-
-HTTP 429 aktiviert eine gemeinsame Sperre entsprechend `Retry-After` (Sekunden oder HTTP-Datum), mindestens 60 Sekunden. Es gibt keine internen Wiederholungsschleifen. Schlägt der Team-Spielabruf fehl, schlägt die Aktualisierung fehl: Es wird **kein partielles Bundesliga-Ergebnis als nächstes Vereinsspiel** veröffentlicht. Home Assistant behandelt den Sensor dann als nicht verfügbar bzw. wiederholt das Setup. Die gemeinsame Drosselung kann 429 bei weiteren Anwendungen hinter derselben IP nicht vollständig verhindern.
-
-### Diese lokale Änderung installieren
-
-Den Ordner `custom_components/openligadb` aus dieser Version nach `/config/custom_components/openligadb` der Home-Assistant-Installation kopieren (vorher sichern) und Home Assistant neu starten. Ein HACS-Update aus dem ursprünglichen Repository kann diese lokalen Änderungen überschreiben; für dauerhafte Nutzung empfiehlt sich ein eigener Fork als HACS-Repository.
-
-## 🖼️ Lovelace Dashboard Mardown Cards
+## 🖼️ Dashboard-Beispiele
 
 ### 1. Match Card with Crests, Scores & Goal Scorers / Cards
 
 <img width="349" height="184" alt="Screenshot 2026-09-17 100612" src="https://github.com/user-attachments/assets/f3a83039-365b-4dc0-b424-5ec5c5ae9e4a" />
 
-Add a **Markdown Card** in your dashboard and paste this code:
+**Markdown-Karte** hinzufügen; `team_sensor` durch deine Entity-ID ersetzen:
 
 ```yaml
 type: markdown
@@ -164,7 +137,7 @@ content: >-
 
 <img width="375" height="348" alt="image" src="https://github.com/user-attachments/assets/259dfe74-ab0e-440a-a32b-b0180f752081" />
 
-Uses a **Markdown Card**, rendering as a table in Home Assistant:
+**Markdown-Karte** hinzufügen und die Sensor-Entity-ID anpassen:
 
 ```yaml
 type: markdown
@@ -188,7 +161,11 @@ content: >-
 
 ## 🔔 Automations & Notifications
 
-### Example: Smartphone Notification & Light Flash on Goal
+### Torbenachrichtigung und Lichtsignal
+
+- Wettbewerbsübergreifend, **auch bei Gegentoren**; benötigt Tordaten von OpenLigaDB.
+- Nach Neustart während eines Spiels sind erneute Meldungen möglich.
+- `notify.notify` und `light.living_room` anpassen.
 
 ```yaml
 alias: "OpenLigaDB Goal Notification"
@@ -199,7 +176,7 @@ condition: []
 action:
   - service: notify.notify
     data:
-      title: "⚽ GOAL FOR {{ trigger.event.data.team }}!"
+      title: "⚽ Tor im Spiel von {{ trigger.event.data.team }}"
       message: "{{ trigger.event.data.goal_getter or 'Goal' }} scored ({{ trigger.event.data.score }}) vs {{ trigger.event.data.opponent }}! (Minute: {{ trigger.event.data.minute }})"
   - service: light.turn_on
     target:
